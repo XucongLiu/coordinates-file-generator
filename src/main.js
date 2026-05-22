@@ -1,10 +1,10 @@
 let state = {
   mode: "absolute",
-  rows: 4,
+  rows: 5,
   cols: 6,
-  firstX: -77,
-  firstY: 37,
-  firstZ: -24.1,
+  firstX: -86,
+  firstY: 41,
+  firstZ: -29.1254,
   spacingX: 31.7,
   spacingY: -31.7,
   zMode: "fixed",
@@ -75,7 +75,7 @@ function render() {
             <label>Z row step mm <input id="zStep" type="number" step="0.0001" /></label>
           </div>
           <label class="check"><input id="snake" type="checkbox" /> Snake order every other row</label>
-          <label class="check"><input id="includeHeader" type="checkbox" /> Include SensoSCAN section header</label>
+          <label class="check"><input id="includeHeader" type="checkbox" /> Include SensoSCAN manual sections</label>
           <label class="check"><input id="decimalComma" type="checkbox" /> Use decimal comma</label>
           <div class="two">
             <label>Separator
@@ -122,7 +122,7 @@ function bindControls() {
     el.onchange = el.oninput;
   }
   document.getElementById("resetBtn").onclick = () => {
-    state = { ...state, mode: "absolute", rows: 4, cols: 6, firstX: -77, firstY: 37, firstZ: -24.1, spacingX: 31.7, spacingY: -31.7, zMode: "fixed", zStep: 0, snake: false, includeHeader: true, decimalComma: false, separator: "space", precision: 4 };
+    state = { ...state, mode: "absolute", rows: 5, cols: 6, firstX: -86, firstY: 41, firstZ: -29.1254, spacingX: 31.7, spacingY: -31.7, zMode: "fixed", zStep: 0, snake: false, includeHeader: true, decimalComma: false, separator: "space", precision: 4 };
     updateControls();
     updateOutput();
   };
@@ -204,8 +204,8 @@ function buildText(coords) {
   const sep = separator();
   const lines = [];
   if (state.includeHeader) {
-    lines.push(state.mode === "relative" ? "[Measures Relative]" : "[Measures Absolute]");
-    lines.push("# X_mm Y_mm Z_mm");
+    lines.push("[References]");
+    lines.push("[Measures]");
   }
   for (const p of coords) {
     const row = [formatNumber(p.x), formatNumber(p.y)];

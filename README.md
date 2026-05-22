@@ -4,26 +4,18 @@ Small local browser app for generating grid coordinate files for SensoSCAN / Sen
 
 ## Coordinate Format
 
-The app can export the SensoSCAN-style relative coordinate file:
+The app exports the SensoSCAN manual-style coordinate file:
 
 ```text
-[Measures Relative]
-# X_mm Y_mm Z_mm
-# Relative positions are added to the current stage position when MMR acquisition starts.
--79.2500 -79.2500 -24.1000
--47.5500 -79.2500 -24.1000
+[References]
+[Measures]
+-86.0000 41.0000 -29.1254
+-54.3000 41.0000 -29.1254
 ...
 ```
 
-It can also export an absolute grid starting from a first measured stage coordinate, for example:
-
-```text
-[Measures Absolute]
-# X_mm Y_mm Z_mm
--77.0000 37.0000 -24.1000
--45.3000 37.0000 -24.1000
-...
-```
+The default grid is 5 rows by 6 columns, starting from `-86.0000 41.0000 -29.1254`.
+The generator still lets you calculate positions as an absolute grid from the first point, or as a relative centered grid, but the exported file sections follow the manual: `[References]` and `[Measures]`.
 
 ## Run
 
