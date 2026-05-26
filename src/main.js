@@ -42,6 +42,7 @@ function render() {
         <div class="actions">
           <input id="logInput" type="file" accept=".log,.txt" hidden />
           <button id="loadLogBtn">${icon("log")}Load MMR Log</button>
+          <button id="downloadFailedBtn" disabled>${icon("download")}Download Failed</button>
           <button id="copyBtn">${icon("copy")}Copy</button>
           <button class="primary" id="downloadBtn">${icon("download")}Download</button>
         </div>
@@ -143,6 +144,7 @@ function bindControls() {
   document.getElementById("addPositionBtn").onclick = addPosition;
   document.getElementById("loadLogBtn").onclick = () => document.getElementById("logInput").click();
   document.getElementById("logInput").onchange = handleLogFile;
+  document.getElementById("downloadFailedBtn").onclick = downloadFailedFile;
 }
 
 function readControls() {
@@ -271,7 +273,7 @@ function renderGrid(coords) {
       cell.title = p ? `Row ${r}, Col ${c}: X ${p.x.toFixed(4)} mm, Y ${p.y.toFixed(4)} mm` : `Row ${r}, Col ${c}: empty`;
       if (p && mmrLogAnalysis?.failedByIndex.has(p.index)) {
         const item = mmrLogAnalysis.failedByIndex.get(p.index);
-        cell.title += `. Flagged by MMR log: ${item.reasons.join(", ")}. Elapsed ${item.elapsed.toFixed(1)}.`;
+        cell.title += `. Failed measurement in MMR log: ${item.reasons.join(", ")}.`;
       }
       el.appendChild(cell);
     }
@@ -297,7 +299,7 @@ async function handleLogFile(event) {
   try {
     mmrLogAnalysis = analyzeMmrLog(await file.text(), file.name);
     updateOutput();
-    flash(`Loaded ${file.name}: ${mmrLogAnalysis.failed.length} failed or suspicious measurements.`);
+    flash(`Loaded ${file.name}: ${mmrLogAnalysis.failed.length} failed measurements.`);
   } catch (error) {
     mmrLogAnalysis = null;
     updateOutput();
@@ -324,12 +326,8 @@ function analyzeMmrLog(text, name = "MMR log") {
     });
   }
   if (!records.length) throw new Error("No MMR measurement records were found in this log.");
-  const times = records.map((r) => r.elapsed).filter(Number.isFinite).sort((a, b) => a - b);
-  const medianElapsed = median(times);
-  const shortThreshold = medianElapsed * 0.75;
   const failed = records.map((record) => {
     const reasons = [];
-    if (record.elapsed < shortThreshold) reasons.push(`short elapsed < ${shortThreshold.toFixed(0)}`);
     if (!Number.isFinite(record.metric)) reasons.push("m.p NA");
     else if (record.metric <= 0) reasons.push("m.p 0");
     return { ...record, reasons };
@@ -340,30 +338,25 @@ function analyzeMmrLog(text, name = "MMR log") {
     recordsByIndex: new Map(records.map((record) => [record.index, record])),
     failed,
     failedByIndex: new Map(failed.map((record) => [record.index, record])),
-    medianElapsed,
-    shortThreshold,
   };
-}
-
-function median(values) {
-  if (!values.length) return NaN;
-  const mid = Math.floor(values.length / 2);
-  return values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
 }
 
 function renderLogSummary() {
   const el = document.getElementById("logSummary");
+  const failedBtn = document.getElementById("downloadFailedBtn");
   if (!mmrLogAnalysis) {
     el.hidden = true;
     el.innerHTML = "";
+    if (failedBtn) failedBtn.disabled = true;
     return;
   }
   el.hidden = false;
+  if (failedBtn) failedBtn.disabled = !mmrLogAnalysis.failed.length;
   const failedList = mmrLogAnalysis.failed.map((r) => `P${String(r.index).padStart(4, "0")}`).join(", ") || "none";
   el.innerHTML = `
     <strong>MMR log:</strong> ${mmrLogAnalysis.records.length} records from ${mmrLogAnalysis.name}.
-    Median elapsed ${mmrLogAnalysis.medianElapsed.toFixed(0)}, failure threshold ${mmrLogAnalysis.shortThreshold.toFixed(0)}.
-    <br><strong>Flagged:</strong> ${failedList}
+    Failures are detected only from direct result markers: m.p(NA) or m.p(0).
+    <br><strong>Failed:</strong> ${failedList}
   `;
 }
 
@@ -377,6 +370,28 @@ function downloadFile() {
   a.download = `sensoscan_coordinates_${state.rows}x${state.cols}${suffix}.txt`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadFailedFile() {
+  if (!mmrLogAnalysis?.failed.length) {
+    flash("No failed measurements are loaded.");
+    return;
+  }
+  const failedIndices = new Set(mmrLogAnalysis.failed.map((record) => record.index));
+  const failedCoords = generateCoordinates().filter((point) => failedIndices.has(point.index));
+  if (!failedCoords.length) {
+    flash("No failed measurements match the current coordinate grid.");
+    return;
+  }
+  const text = buildText(failedCoords);
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `sensoscan_failed_coordinates_${failedCoords.length}_from_${state.rows}x${state.cols}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+  flash(`Downloaded ${failedCoords.length} failed positions.`);
 }
 
 function flash(text) {
