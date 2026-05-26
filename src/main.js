@@ -15,6 +15,8 @@ let state = {
   separator: "space",
   precision: 4,
   extraPositions: 0,
+  failedZMode: "offset",
+  failedZValue: 0,
 };
 
 const root = document.getElementById("root");
@@ -105,6 +107,15 @@ function render() {
           <div id="gridPreview" class="gridPreview"></div>
           <div class="summary" id="summary"></div>
           <div id="logSummary" class="logSummary" hidden></div>
+          <div class="failedRetryControls">
+            <label>Failed retry Z
+              <select id="failedZMode">
+                <option value="offset">Add offset to original Z</option>
+                <option value="absolute">Set absolute Z</option>
+              </select>
+            </label>
+            <label>Z value mm <input id="failedZValue" type="number" step="0.0001" /></label>
+          </div>
           <textarea id="output" spellcheck="false"></textarea>
         </section>
       </section>
@@ -132,7 +143,7 @@ function bindControls() {
     el.onchange = el.oninput;
   }
   document.getElementById("resetBtn").onclick = () => {
-    state = { ...state, mode: "absolute", rows: 5, cols: 6, firstX: -86, firstY: 41, firstZ: -29.1254, spacingX: 31.7, spacingY: -31.7, zMode: "fixed", zStep: 0, snake: false, includeHeader: true, decimalComma: false, separator: "space", precision: 4, extraPositions: 0 };
+    state = { ...state, mode: "absolute", rows: 5, cols: 6, firstX: -86, firstY: 41, firstZ: -29.1254, spacingX: 31.7, spacingY: -31.7, zMode: "fixed", zStep: 0, snake: false, includeHeader: true, decimalComma: false, separator: "space", precision: 4, extraPositions: 0, failedZMode: "offset", failedZValue: 0 };
     updateControls();
     updateOutput();
   };
@@ -163,6 +174,8 @@ function readControls() {
   state.decimalComma = document.getElementById("decimalComma").checked;
   state.separator = document.getElementById("separator").value;
   state.precision = clampInt(document.getElementById("precision").value, 0, 8);
+  state.failedZMode = document.getElementById("failedZMode").value;
+  state.failedZValue = numberValue("failedZValue");
   state.extraPositions = Math.max(0, Math.min(state.extraPositions, state.cols * 50 - state.rows * state.cols));
 }
 
@@ -357,6 +370,7 @@ function renderLogSummary() {
     <strong>MMR log:</strong> ${mmrLogAnalysis.records.length} records from ${mmrLogAnalysis.name}.
     Failures are detected only from direct result markers: m.p(NA) or m.p(0).
     <br><strong>Failed:</strong> ${failedList}
+    <br><strong>Retry export:</strong> X/Y stay unchanged. Z will ${state.failedZMode === "absolute" ? `be set to ${formatNumber(state.failedZValue)} mm` : `add ${formatNumber(state.failedZValue)} mm to the original Z`}.
   `;
 }
 
@@ -378,7 +392,7 @@ function downloadFailedFile() {
     return;
   }
   const failedIndices = new Set(mmrLogAnalysis.failed.map((record) => record.index));
-  const failedCoords = generateCoordinates().filter((point) => failedIndices.has(point.index));
+  const failedCoords = generateCoordinates().filter((point) => failedIndices.has(point.index)).map(applyFailedRetryZ);
   if (!failedCoords.length) {
     flash("No failed measurements match the current coordinate grid.");
     return;
@@ -392,6 +406,13 @@ function downloadFailedFile() {
   a.click();
   URL.revokeObjectURL(url);
   flash(`Downloaded ${failedCoords.length} failed positions.`);
+}
+
+function applyFailedRetryZ(point) {
+  const z = state.failedZMode === "absolute"
+    ? state.failedZValue
+    : (point.z === null ? state.failedZValue : point.z + state.failedZValue);
+  return { ...point, z };
 }
 
 function flash(text) {
