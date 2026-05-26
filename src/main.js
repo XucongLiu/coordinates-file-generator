@@ -18,6 +18,7 @@ let state = {
 };
 
 const root = document.getElementById("root");
+let mmrLogAnalysis = null;
 
 function icon(name) {
   const paths = {
@@ -25,6 +26,7 @@ function icon(name) {
     download: "M12 3v12m0 0 4-4m-4 4-4-4M5 21h14",
     copy: "M8 8h11v11H8z M5 5h11v3H8v8H5z",
     refresh: "M20 7v5h-5M4 17v-5h5M18 10a6 6 0 0 0-10-3M6 14a6 6 0 0 0 10 3",
+    log: "M7 3h10l3 3v15H7z M17 3v5h5 M10 12h8M10 16h8M10 8h3",
   };
   return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name]}" /></svg>`;
 }
@@ -38,6 +40,8 @@ function render() {
           <p>Generate MMR grid coordinate files for Sensofar / SensoSCAN stage positions.</p>
         </div>
         <div class="actions">
+          <input id="logInput" type="file" accept=".log,.txt" hidden />
+          <button id="loadLogBtn">${icon("log")}Load MMR Log</button>
           <button id="copyBtn">${icon("copy")}Copy</button>
           <button class="primary" id="downloadBtn">${icon("download")}Download</button>
         </div>
@@ -99,6 +103,7 @@ function render() {
           </div>
           <div id="gridPreview" class="gridPreview"></div>
           <div class="summary" id="summary"></div>
+          <div id="logSummary" class="logSummary" hidden></div>
           <textarea id="output" spellcheck="false"></textarea>
         </section>
       </section>
@@ -136,6 +141,8 @@ function bindControls() {
   };
   document.getElementById("downloadBtn").onclick = downloadFile;
   document.getElementById("addPositionBtn").onclick = addPosition;
+  document.getElementById("loadLogBtn").onclick = () => document.getElementById("logInput").click();
+  document.getElementById("logInput").onchange = handleLogFile;
 }
 
 function readControls() {
@@ -245,6 +252,7 @@ function updateOutput() {
   const last = coords[coords.length - 1];
   const extra = state.extraPositions ? ` Base grid ${state.rows} x ${state.cols} plus ${state.extraPositions} appended.` : "";
   document.getElementById("summary").textContent = `${coords.length} positions.${extra} First: X ${first.x.toFixed(4)}, Y ${first.y.toFixed(4)}, Z ${first.z === null ? "blank" : first.z.toFixed(4)}. Last: row ${last.row}, col ${last.col}, X ${last.x.toFixed(4)}, Y ${last.y.toFixed(4)}.`;
+  renderLogSummary();
 }
 
 function renderGrid(coords) {
@@ -258,8 +266,13 @@ function renderGrid(coords) {
       const p = byCell.get(`${r}-${c}`);
       const cell = document.createElement("div");
       cell.className = p ? (p.index === 1 ? "cell first" : "cell") : "cell empty";
+      if (p && mmrLogAnalysis?.failedByIndex.has(p.index)) cell.classList.add("failed");
       cell.textContent = p ? p.index : "";
       cell.title = p ? `Row ${r}, Col ${c}: X ${p.x.toFixed(4)} mm, Y ${p.y.toFixed(4)} mm` : `Row ${r}, Col ${c}: empty`;
+      if (p && mmrLogAnalysis?.failedByIndex.has(p.index)) {
+        const item = mmrLogAnalysis.failedByIndex.get(p.index);
+        cell.title += `. Flagged by MMR log: ${item.reasons.join(", ")}. Elapsed ${item.elapsed.toFixed(1)}.`;
+      }
       el.appendChild(cell);
     }
   }
@@ -268,9 +281,89 @@ function renderGrid(coords) {
 function renderTable(coords) {
   document.getElementById("tableWrap").innerHTML = `
     <table>
-      <thead><tr><th>#</th><th>Row</th><th>Col</th><th>X mm</th><th>Y mm</th><th>Z mm</th></tr></thead>
-      <tbody>${coords.map((p) => `<tr><td>${p.index}</td><td>${p.row}</td><td>${p.col}</td><td>${p.x.toFixed(4)}</td><td>${p.y.toFixed(4)}</td><td>${p.z === null ? "" : p.z.toFixed(4)}</td></tr>`).join("")}</tbody>
+      <thead><tr><th>#</th><th>Row</th><th>Col</th><th>X mm</th><th>Y mm</th><th>Z mm</th><th>MMR log</th></tr></thead>
+      <tbody>${coords.map((p) => {
+        const failed = mmrLogAnalysis?.failedByIndex.get(p.index);
+        const status = failed ? `Failed: ${failed.reasons.join(", ")}` : (mmrLogAnalysis?.recordsByIndex.has(p.index) ? "OK" : "");
+        return `<tr class="${failed ? "failedRow" : ""}"><td>${p.index}</td><td>${p.row}</td><td>${p.col}</td><td>${p.x.toFixed(4)}</td><td>${p.y.toFixed(4)}</td><td>${p.z === null ? "" : p.z.toFixed(4)}</td><td>${status}</td></tr>`;
+      }).join("")}</tbody>
     </table>
+  `;
+}
+
+async function handleLogFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    mmrLogAnalysis = analyzeMmrLog(await file.text(), file.name);
+    updateOutput();
+    flash(`Loaded ${file.name}: ${mmrLogAnalysis.failed.length} failed or suspicious measurements.`);
+  } catch (error) {
+    mmrLogAnalysis = null;
+    updateOutput();
+    flash(error.message || "Could not parse the MMR log.");
+  } finally {
+    event.target.value = "";
+  }
+}
+
+function analyzeMmrLog(text, name = "MMR log") {
+  const pattern = /P\((\d+)\/(\d+)\)\s+XYZAbs\(([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\)\s*\r?\nR\([^)]*\).*?m\.p\(([^)]+)\);\s*elapsed time:\s*([\d.]+)/g;
+  const records = [];
+  for (const match of text.matchAll(pattern)) {
+    const metricText = match[6].trim();
+    records.push({
+      index: Number(match[1]),
+      total: Number(match[2]),
+      x: Number(match[3]),
+      y: Number(match[4]),
+      z: Number(match[5]),
+      metricText,
+      metric: metricText.toUpperCase() === "NA" ? NaN : Number(metricText),
+      elapsed: Number(match[7]),
+    });
+  }
+  if (!records.length) throw new Error("No MMR measurement records were found in this log.");
+  const times = records.map((r) => r.elapsed).filter(Number.isFinite).sort((a, b) => a - b);
+  const medianElapsed = median(times);
+  const shortThreshold = medianElapsed * 0.75;
+  const failed = records.map((record) => {
+    const reasons = [];
+    if (record.elapsed < shortThreshold) reasons.push(`short elapsed < ${shortThreshold.toFixed(0)}`);
+    if (!Number.isFinite(record.metric)) reasons.push("m.p NA");
+    else if (record.metric <= 0) reasons.push("m.p 0");
+    return { ...record, reasons };
+  }).filter((record) => record.reasons.length);
+  return {
+    name,
+    records,
+    recordsByIndex: new Map(records.map((record) => [record.index, record])),
+    failed,
+    failedByIndex: new Map(failed.map((record) => [record.index, record])),
+    medianElapsed,
+    shortThreshold,
+  };
+}
+
+function median(values) {
+  if (!values.length) return NaN;
+  const mid = Math.floor(values.length / 2);
+  return values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
+}
+
+function renderLogSummary() {
+  const el = document.getElementById("logSummary");
+  if (!mmrLogAnalysis) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  el.hidden = false;
+  const failedList = mmrLogAnalysis.failed.map((r) => `P${String(r.index).padStart(4, "0")}`).join(", ") || "none";
+  el.innerHTML = `
+    <strong>MMR log:</strong> ${mmrLogAnalysis.records.length} records from ${mmrLogAnalysis.name}.
+    Median elapsed ${mmrLogAnalysis.medianElapsed.toFixed(0)}, failure threshold ${mmrLogAnalysis.shortThreshold.toFixed(0)}.
+    <br><strong>Flagged:</strong> ${failedList}
   `;
 }
 

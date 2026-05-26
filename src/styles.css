@@ -200,6 +200,13 @@ select {
   font-weight: 740;
 }
 
+.cell.failed {
+  background: #ffe1e1;
+  border-color: #d22929;
+  color: #8a1111;
+  font-weight: 760;
+}
+
 .cell.empty {
   border-style: dashed;
   background: #ffffff;
@@ -209,6 +216,16 @@ select {
 .summary {
   color: #536174;
   font-size: 14px;
+}
+
+.logSummary {
+  border: 1px solid #f0b8b8;
+  background: #fff4f4;
+  color: #7b1e1e;
+  border-radius: 6px;
+  padding: 9px 10px;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 textarea {
@@ -244,6 +261,11 @@ th {
 th:first-child,
 td:first-child {
   text-align: left;
+}
+
+.failedRow td {
+  background: #fff4f4;
+  color: #7b1e1e;
 }
 
 @media (max-width: 900px) {
