@@ -157,6 +157,25 @@ select {
   gap: 12px;
 }
 
+.previewHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.previewHeader h2 {
+  margin-bottom: 0;
+}
+
+.iconButton {
+  width: 38px;
+  justify-content: center;
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 700;
+}
+
 .gridPreview {
   display: grid;
   gap: 6px;
@@ -179,6 +198,12 @@ select {
   border-color: #c9820c;
   color: #17202a;
   font-weight: 740;
+}
+
+.cell.empty {
+  border-style: dashed;
+  background: #ffffff;
+  color: transparent;
 }
 
 .summary {

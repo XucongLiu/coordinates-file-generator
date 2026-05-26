@@ -29,9 +29,13 @@
     .three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     input, select { height: 36px; border: 1px solid #cbd5e0; border-radius: 6px; padding: 0 8px; background: #fff; color: #17202a; }
     .previewPanel { display: grid; grid-template-rows: auto auto auto 1fr; gap: 12px; }
+    .previewHeader { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    .previewHeader h2 { margin-bottom: 0; }
+    .iconButton { width: 38px; justify-content: center; font-size: 24px; line-height: 1; font-weight: 700; }
     .gridPreview { display: grid; gap: 6px; }
     .cell { min-height: 34px; border-radius: 6px; border: 1px solid #cbd5e0; background: #eef3f8; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #425066; }
     .cell.first { background: #f5b027; border-color: #c9820c; color: #17202a; font-weight: 740; }
+    .cell.empty { border-style: dashed; background: #fff; color: transparent; }
     .summary { color: #536174; font-size: 14px; }
     textarea { width: 100%; min-height: 280px; resize: vertical; border: 1px solid #cbd5e0; border-radius: 6px; padding: 12px; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -64,6 +68,7 @@
       decimalComma: false,
       separator: "space",
       precision: 4,
+      extraPositions: 0,
     };
 
     const root = document.getElementById("root");
@@ -142,7 +147,10 @@
             </form>
 
             <section class="panel previewPanel">
-              <h2>Preview</h2>
+              <div class="previewHeader">
+                <h2>Preview</h2>
+                <button type="button" id="addPositionBtn" class="iconButton" title="Append the next position in the same grid pattern">+</button>
+              </div>
               <div id="gridPreview" class="gridPreview"></div>
               <div class="summary" id="summary"></div>
               <textarea id="output" spellcheck="false"></textarea>
@@ -172,7 +180,7 @@
         el.onchange = el.oninput;
       }
       document.getElementById("resetBtn").onclick = () => {
-        state = { ...state, mode: "absolute", rows: 5, cols: 6, firstX: -86, firstY: 41, firstZ: -29.1254, spacingX: 31.7, spacingY: -31.7, zMode: "fixed", zStep: 0, snake: false, includeHeader: true, decimalComma: false, separator: "space", precision: 4 };
+        state = { ...state, mode: "absolute", rows: 5, cols: 6, firstX: -86, firstY: 41, firstZ: -29.1254, spacingX: 31.7, spacingY: -31.7, zMode: "fixed", zStep: 0, snake: false, includeHeader: true, decimalComma: false, separator: "space", precision: 4, extraPositions: 0 };
         updateControls();
         updateOutput();
       };
@@ -188,6 +196,7 @@
         }
       };
       document.getElementById("downloadBtn").onclick = downloadFile;
+      document.getElementById("addPositionBtn").onclick = addPosition;
     }
 
     function readControls() {
@@ -206,6 +215,7 @@
       state.decimalComma = document.getElementById("decimalComma").checked;
       state.separator = document.getElementById("separator").value;
       state.precision = clampInt(document.getElementById("precision").value, 0, 8);
+      state.extraPositions = Math.max(0, Math.min(state.extraPositions, state.cols * 50 - state.rows * state.cols));
     }
 
     function updateControls() {
@@ -232,10 +242,13 @@
       const coords = [];
       const relativeX0 = -0.5 * (state.cols - 1) * Math.abs(state.spacingX);
       const relativeY0 = -0.5 * (state.rows - 1) * Math.abs(state.spacingY);
-      for (let r = 0; r < state.rows; r++) {
+      const totalPositions = state.rows * state.cols + state.extraPositions;
+      const totalRows = Math.ceil(totalPositions / state.cols);
+      for (let r = 0; r < totalRows; r++) {
         const columns = Array.from({ length: state.cols }, (_, i) => i);
         if (state.snake && r % 2) columns.reverse();
         for (const c of columns) {
+          if (coords.length >= totalPositions) break;
           const x = state.mode === "relative" ? relativeX0 + c * Math.abs(state.spacingX) : state.firstX + c * state.spacingX;
           const y = state.mode === "relative" ? relativeY0 + r * Math.abs(state.spacingY) : state.firstY + r * state.spacingY;
           let z = null;
@@ -245,6 +258,18 @@
         }
       }
       return coords;
+    }
+
+    function addPosition() {
+      readControls();
+      const maxPositions = state.cols * 50;
+      const currentPositions = state.rows * state.cols + state.extraPositions;
+      if (currentPositions >= maxPositions) {
+        flash("The preview already reaches the 50-row limit.");
+        return;
+      }
+      state.extraPositions += 1;
+      updateOutput();
     }
 
     function formatNumber(value) {
@@ -279,7 +304,8 @@
       renderGrid(coords);
       const first = coords[0];
       const last = coords[coords.length - 1];
-      document.getElementById("summary").textContent = `${coords.length} positions. First: X ${first.x.toFixed(4)}, Y ${first.y.toFixed(4)}, Z ${first.z === null ? "blank" : first.z.toFixed(4)}. Last: X ${last.x.toFixed(4)}, Y ${last.y.toFixed(4)}.`;
+      const extra = state.extraPositions ? ` Base grid ${state.rows} x ${state.cols} plus ${state.extraPositions} appended.` : "";
+      document.getElementById("summary").textContent = `${coords.length} positions.${extra} First: X ${first.x.toFixed(4)}, Y ${first.y.toFixed(4)}, Z ${first.z === null ? "blank" : first.z.toFixed(4)}. Last: row ${last.row}, col ${last.col}, X ${last.x.toFixed(4)}, Y ${last.y.toFixed(4)}.`;
     }
 
     function renderGrid(coords) {
@@ -287,13 +313,14 @@
       el.style.gridTemplateColumns = `repeat(${state.cols}, minmax(26px, 1fr))`;
       const byCell = new Map(coords.map((p) => [`${p.row}-${p.col}`, p]));
       el.innerHTML = "";
-      for (let r = 1; r <= state.rows; r++) {
+      const renderedRows = Math.max(state.rows, Math.ceil(coords.length / state.cols));
+      for (let r = 1; r <= renderedRows; r++) {
         for (let c = 1; c <= state.cols; c++) {
           const p = byCell.get(`${r}-${c}`);
           const cell = document.createElement("div");
-          cell.className = p.index === 1 ? "cell first" : "cell";
-          cell.textContent = p.index;
-          cell.title = `Row ${r}, Col ${c}: X ${p.x.toFixed(4)} mm, Y ${p.y.toFixed(4)} mm`;
+          cell.className = p ? (p.index === 1 ? "cell first" : "cell") : "cell empty";
+          cell.textContent = p ? p.index : "";
+          cell.title = p ? `Row ${r}, Col ${c}: X ${p.x.toFixed(4)} mm, Y ${p.y.toFixed(4)} mm` : `Row ${r}, Col ${c}: empty`;
           el.appendChild(cell);
         }
       }
@@ -314,7 +341,8 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `sensoscan_coordinates_${state.rows}x${state.cols}.txt`;
+      const suffix = state.extraPositions ? `_plus${state.extraPositions}` : "";
+      a.download = `sensoscan_coordinates_${state.rows}x${state.cols}${suffix}.txt`;
       a.click();
       URL.revokeObjectURL(url);
     }
